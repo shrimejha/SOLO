@@ -1,0 +1,128 @@
+# ============================================================
+# SOLO — AI Auto-Framing Studio
+# .gitignore
+# ============================================================
+
+# ───────────────────────────────────────────
+# ENVIRONMENT & SECRETS (NEVER COMMIT THESE)
+# ───────────────────────────────────────────
+.env
+.env.*
+.env.local
+.env.development
+.env.production
+*.env
+# Allow the example template (safe to commit — contains no real secrets)
+!.env.example
+secrets.json
+config.local.json
+service-account.json
+
+# ───────────────────────────────────────────
+# NODE / NPM
+# ───────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnp/
+.pnp.js
+.npm/
+
+# TypeScript build output
+dist/
+build/
+*.js.map
+*.d.ts
+
+# ───────────────────────────────────────────
+# PYTHON
+# ───────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyc
+*.pyd
+.Python
+env/
+venv/
+.venv/
+.env/
+pip-log.txt
+pip-delete-this-directory.txt
+*.egg-info/
+dist/
+*.egg
+.eggs/
+*.whl
+
+# ───────────────────────────────────────────
+# ANDROID / CAPACITOR
+# ───────────────────────────────────────────
+apps/mobile/android/.gradle/
+apps/mobile/android/app/build/
+apps/mobile/android/build/
+apps/mobile/android/local.properties
+apps/mobile/android/app/release/
+*.apk
+*.aab
+*.keystore
+*.jks
+
+# ───────────────────────────────────────────
+# BACKEND STORAGE (USER SESSION DATA)
+# ───────────────────────────────────────────
+services/backend-api/storage_data/
+services/pipeline/test_output/
+services/pipeline/output/
+
+# ───────────────────────────────────────────
+# MEDIA & LARGE BINARY FILES
+# ───────────────────────────────────────────
+*.mp4
+*.webm
+*.mov
+*.avi
+*.mkv
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.bmp
+*.tiff
+*.srt
+
+# ───────────────────────────────────────────
+# OS / EDITOR JUNK
+# ───────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+.vscode/
+.idea/
+*.swp
+*.swo
+*.tmp
+*.bak
+
+# ───────────────────────────────────────────
+# LOGS
+# ───────────────────────────────────────────
+logs/
+*.log
+*.log.*
+
+# ───────────────────────────────────────────
+# MISC TOOLING
+# ───────────────────────────────────────────
+.cache/
+.parcel-cache/
+coverage/
+.nyc_output/
+*.tsbuildinfo
+fix_html.ps1

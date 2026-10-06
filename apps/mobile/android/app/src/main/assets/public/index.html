@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#66fcf1">
+  <link rel="manifest" href="/manifest.json">
+  <title>AI Podcast Camera - Mobile App</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', sans-serif; -webkit-tap-highlight-color: transparent; }
+    html, body { width: 100%; height: 100%; background: #0b0c10; color: #e0e6ed; overflow: hidden; }
+    
+    .phone-wrapper {
+      width: 100%; height: 100%; max-width: 480px; margin: 0 auto; background: #12141d;
+      display: flex; flex-direction: column; position: relative; overflow: hidden;
+    }
+    
+    .status-bar {
+      height: 44px; padding: 12px 20px 0 20px; display: flex; justify-content: space-between; font-size: 13px; font-weight: 600; color: #a0aec0; z-index: 90; background: #12141d;
+    }
+
+    .screen { flex: 1; display: none; flex-direction: column; padding: 20px; background: #12141d; position: relative; overflow-y: auto; }
+    .screen.active { display: flex; }
+
+    h2 { font-size: 22px; font-weight: 700; color: #66fcf1; margin-bottom: 6px; }
+    p.subtitle { font-size: 13px; color: #8892b0; margin-bottom: 20px; line-height: 1.4; }
+
+    .card { background: #1a1d28; border: 1px solid #2e364f; border-radius: 16px; padding: 16px; margin-bottom: 16px; }
+
+    .btn {
+      width: 100%; padding: 16px; background: linear-gradient(135deg, #45a29e, #66fcf1); color: #0b0c10;
+      border: none; border-radius: 14px; font-weight: 700; font-size: 15px; cursor: pointer; transition: all 0.2s;
+      display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: auto; touch-action: manipulation;
+    }
+    .btn:active { transform: scale(0.98); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .preview-box {
+      width: 100%; height: 260px; background: #000; border-radius: 18px; border: 2px dashed #45a29e;
+      position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center;
+    }
+
+    video.live-camera {
+      width: 100%; height: 100%; object-fit: cover; position: absolute; top: 0; left: 0; z-index: 1;
+    }
+
+    .overlay-hud { position: relative; z-index: 10; width: 100%; height: 100%; pointer-events: none; }
+
+    .face-box {
+      position: absolute; border: 2px solid #66fcf1; border-radius: 8px; background: rgba(102,252,241,0.15);
+      display: flex; align-items: center; justify-content: center; font-size: 11px; color: #66fcf1; font-weight: 700;
+    }
+
+    .status-badge {
+      padding: 8px 14px; border-radius: 20px; font-size: 12px; font-weight: 600; text-align: center; margin-top: 12px;
+    }
+    .status-badge.valid { background: rgba(72, 187, 120, 0.2); color: #48bb78; border: 1px solid #48bb78; }
+    .status-badge.invalid { background: rgba(245, 101, 101, 0.2); color: #f56565; border: 1px solid #f56565; }
+
+    .progress-bar { width: 100%; height: 8px; background: #2d3748; border-radius: 4px; overflow: hidden; margin-top: 10px; }
+    .progress-fill { width: 0%; height: 100%; background: #66fcf1; transition: width 0.3s; }
+
+    .nudge-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+    .nudge-btn { background: #232936; border: 1px solid #3b4768; color: #e0e6ed; padding: 12px; border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer; }
+    .nudge-btn:active { background: #2d3748; border-color: #66fcf1; }
+  </style>
+</head>
+<body>
+
+  <div class="phone-wrapper">
+    <div class="status-bar">
+      <span>AI Podcast Cam</span>
+      <span>4K 60fps 🔒</span>
+    </div>
+
+    <!-- Screen 1: AR Setup Scan -->
+    <div id="screen-setup" class="screen active">
+      <h2>1. AR Room Scan</h2>
+      <p class="subtitle">Point phone camera around the studio to calibrate lens intrinsics & floor plane.</p>
+      
+      <div class="preview-box">
+        <video id="webcam-1" class="live-camera" autoplay playsinline muted></video>
+        <div class="overlay-hud" style="display: flex; align-items: center; justify-content: center;">
+          <span style="background: rgba(0,0,0,0.6); padding: 6px 12px; border-radius: 8px; color: #66fcf1; font-size: 12px; font-weight: 600;">[ AR Point Cloud Scan Active ]</span>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top: 16px;">
+        <div style="font-size: 12px; color: #a0aec0;">Intrinsics: fx=3000.0, fy=3000.0</div>
+        <div style="font-size: 12px; color: #a0aec0; margin-top: 4px;">PPM Scale: 1200.0 px/meter</div>
+        <div style="font-size: 12px; color: #66fcf1; margin-top: 4px;">Setup Reference Plates: 1 Captured</div>
+      </div>
+
+      <button class="btn" onclick="nextScreen('screen-voice')">Complete Room Scan &rarr;</button>
+    </div>
+
+    <!-- Screen 2: Voice Enrollment -->
+    <div id="screen-voice" class="screen">
+      <h2>2. Voice Enrollment</h2>
+      <p class="subtitle">Tap to record a 3-second sample for Host & Guest voiceprints.</p>
+
+      <div class="card">
+        <div style="font-weight: 600; font-size: 14px; color: #e0e6ed;">Speaker 1 (Host)</div>
+        <button class="btn" style="padding: 10px; margin-top: 8px;" onclick="enrollVoice('Host')">Record Host Sample</button>
+        <div id="host-status" style="font-size: 11px; color: #48bb78; margin-top: 4px;"></div>
+      </div>
+
+      <div class="card">
+        <div style="font-weight: 600; font-size: 14px; color: #e0e6ed;">Speaker 2 (Guest)</div>
+        <button class="btn" style="padding: 10px; margin-top: 8px;" onclick="enrollVoice('Guest')">Record Guest Sample</button>
+        <div id="guest-status" style="font-size: 11px; color: #48bb78; margin-top: 4px;"></div>
+      </div>
+
+      <button class="btn" id="btn-to-seating" disabled onclick="nextScreen('screen-seating')">Proceed to Seating Check &rarr;</button>
+    </div>
+
+    <!-- Screen 3: Guided Seating Check -->
+    <div id="screen-seating" class="screen">
+      <h2>3. Seating Check</h2>
+      <p class="subtitle">Live preview enforcing physical speaker distance boundary before recording.</p>
+
+      <div class="preview-box">
+        <video id="webcam-2" class="live-camera" autoplay playsinline muted></video>
+        <div class="overlay-hud">
+          <div class="face-box" style="left: 20px; top: 70px; width: 70px; height: 70px;">Host</div>
+          <div class="face-box" id="guest-face" style="right: 20px; top: 70px; width: 70px; height: 70px;">Guest</div>
+        </div>
+      </div>
+
+      <div style="margin-top: 14px;">
+        <label style="font-size: 12px; color: #a0aec0;">Simulate Speaker Distance:</label>
+        <input type="range" min="0.4" max="4.0" step="0.1" value="1.8" style="width: 100%; margin-top: 6px;" oninput="updateSeating(this.value)">
+      </div>
+
+      <div id="seating-status" class="status-badge valid">Seating Geometry Valid (1.80m). Recording Unlocked!</div>
+
+      <button class="btn" id="btn-record" onclick="nextScreen('screen-recording')">Start 4K Recording &#9654;</button>
+    </div>
+
+    <!-- Screen 4: Locked 4K Recording -->
+    <div id="screen-recording" class="screen">
+      <h2>4. Recording (4K60)</h2>
+      <p class="subtitle">Main lens locked. Physical auto-switching disabled.</p>
+
+      <div class="preview-box" style="border-color: #f56565;">
+        <video id="webcam-3" class="live-camera" autoplay playsinline muted></video>
+        <div class="overlay-hud">
+          <div id="rec-timer-display" style="position: absolute; top: 12px; left: 12px; color: #f56565; font-weight: 700; font-size: 13px; background: rgba(0,0,0,0.6); padding: 4px 8px; border-radius: 6px;">🔴 REC 00:00:00</div>
+          <div style="position: absolute; bottom: 12px; right: 12px; color: #a0aec0; font-size: 11px; background: rgba(0,0,0,0.6); padding: 4px 8px; border-radius: 6px;">Main Lens (4K60 Locked)</div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top: 16px;">
+        <div style="font-size: 12px; color: #a0aec0;">Format: 3840x2160 @ 60fps</div>
+        <div style="font-size: 12px; color: #a0aec0; margin-top: 4px;">Lens Lock: Main Wide (Fixed WB & Focus)</div>
+      </div>
+
+      <button class="btn" style="background: linear-gradient(135deg, #f56565, #e53e3e); color: #fff;" onclick="nextScreen('screen-upload')">Stop & Upload Session &#9632;</button>
+    </div>
+
+    <!-- Screen 5: Background Upload -->
+    <div id="screen-upload" class="screen">
+      <h2>5. Background Upload</h2>
+      <p class="subtitle">Transferring 4K video & metadata to private backend API.</p>
+
+      <div class="card">
+        <div style="display: flex; justify-content: space-between; font-size: 13px;">
+          <span>Raw 4K Video Package</span>
+          <span id="upload-percent">0%</span>
+        </div>
+        <div class="progress-bar">
+          <div class="progress-fill" id="upload-bar"></div>
+        </div>
+      </div>
+
+      <button class="btn" id="btn-review" disabled onclick="nextScreen('screen-review')">Go to In-App Review Player &rarr;</button>
+    </div>
+
+    <!-- Screen 6: In-App Review & Crop Nudge Player -->
+    <div id="screen-review" class="screen">
+      <h2>6. Review & Nudge UI</h2>
+      <p class="subtitle">Auto-framed 1080p preview. Nudge crop decisions to fine-tune framing model.</p>
+
+      <div class="preview-box" style="border-color: #66fcf1;">
+        <div style="color: #66fcf1; font-size: 13px; text-align: center;">[ 1080p Auto-Framed Video ]<br><span style="font-size: 11px; color: #a0aec0;">Framing: Speaker 1 (Host)</span></div>
+      </div>
+
+      <div class="nudge-grid">
+        <button class="nudge-btn" onclick="nudge('Left')">&#8592; Nudge Left</button>
+        <button class="nudge-btn" onclick="nudge('Right')">Nudge Right &#8594;</button>
+        <button class="nudge-btn" onclick="nudge('Zoom In')">&#43; Zoom In</button>
+        <button class="nudge-btn" onclick="nudge('Zoom Out')">&#8722; Zoom Out</button>
+      </div>
+
+      <div id="nudge-log" style="font-size: 11px; color: #48bb78; text-align: center; margin-top: 8px; height: 16px;"></div>
+
+      <button class="btn" onclick="nextScreen('screen-setup')">Finish Session &#10003;</button>
+    </div>
+
+  </div>
+
+  <script>
+    let hostDone = false, guestDone = false;
+
+    // Enable live phone camera preview if available
+    async function initPhoneCamera() {
+      try {
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+          const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+          ['webcam-1', 'webcam-2', 'webcam-3'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.srcObject = stream;
+          });
+        }
+      } catch (e) {
+        console.log('Camera permission fallback to virtual preview.');
+      }
+    }
+
+    initPhoneCamera();
+
+    function nextScreen(screenId) {
+      document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+      const target = document.getElementById(screenId);
+      if (target) target.classList.add('active');
+
+      if (screenId === 'screen-upload') {
+        simulateUpload();
+      }
+    }
+
+    function enrollVoice(speaker) {
+      if (speaker === 'Host') {
+        hostDone = true;
+        document.getElementById('host-status').innerText = '✓ Voiceprint enrolled (128-dim vector)';
+      } else {
+        guestDone = true;
+        document.getElementById('guest-status').innerText = '✓ Voiceprint enrolled (128-dim vector)';
+      }
+      if (hostDone && guestDone) {
+        document.getElementById('btn-to-seating').disabled = false;
+      }
+    }
+
+    function updateSeating(val) {
+      const distance = parseFloat(val);
+      const statusEl = document.getElementById('seating-status');
+      const btn = document.getElementById('btn-record');
+
+      if (distance < 0.8) {
+        statusEl.className = 'status-badge invalid';
+        statusEl.innerText = `Too Close (${distance.toFixed(2)}m). Min distance 0.80m required.`;
+        btn.disabled = true;
+      } else if (distance > 3.5) {
+        statusEl.className = 'status-badge invalid';
+        statusEl.innerText = `Too Far (${distance.toFixed(2)}m). Max pan headroom 3.50m.`;
+        btn.disabled = true;
+      } else {
+        statusEl.className = 'status-badge valid';
+        statusEl.innerText = `Seating Geometry Valid (${distance.toFixed(2)}m). Recording Unlocked!`;
+        btn.disabled = false;
+      }
+    }
+
+    function simulateUpload() {
+      let pct = 0;
+      const bar = document.getElementById('upload-bar');
+      const text = document.getElementById('upload-percent');
+      const btn = document.getElementById('btn-review');
+
+      const timer = setInterval(() => {
+        pct += 25;
+        bar.style.width = pct + '%';
+        text.innerText = pct + '%';
+        if (pct >= 100) {
+          clearInterval(timer);
+          btn.disabled = false;
+        }
+      }, 500);
+    }
+
+    function nudge(type) {
+      const log = document.getElementById('nudge-log');
+      log.innerText = `✓ Nudge logged: ${type} (Saved for Phase 4 ML training)`;
+      setTimeout(() => log.innerText = '', 2000);
+    }
+  </script>
+</body>
+</html>

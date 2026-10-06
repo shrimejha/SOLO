@@ -1,0 +1,27 @@
+# SOLO Pipeline — Python Requirements
+# ======================================
+# Install with:  pip install -r requirements.txt
+# Recommended:   use a virtual environment (python -m venv .venv)
+
+# Core scientific stack
+numpy>=1.24.0
+scipy>=1.10.0
+
+# Computer vision
+opencv-python>=4.8.0
+Pillow>=9.5.0
+
+# Audio processing
+librosa>=0.10.0
+soundfile>=0.12.1
+
+# HTTP / API calls (pipeline ↔ backend)
+requests>=2.31.0
+httpx>=0.27.0
+
+# Data validation
+pydantic>=2.0.0
+
+# Utilities
+python-dotenv>=1.0.0
+tqdm>=4.66.0

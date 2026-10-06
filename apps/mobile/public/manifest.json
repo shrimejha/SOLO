@@ -1,0 +1,21 @@
+{
+  "short_name": "AI Podcast Cam",
+  "name": "AI Auto-Framing Podcast Camera",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/2950/2950657.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/2950/2950657.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#0b0c10",
+  "theme_color": "#66fcf1",
+  "display": "standalone",
+  "orientation": "portrait"
+}

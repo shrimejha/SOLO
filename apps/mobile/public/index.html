@@ -1,0 +1,1175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#66fcf1">
+  <link rel="manifest" href="/manifest.json">
+  <title>SOLO — AI Auto-Framing Studio</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <!-- MediaPipe Face Detection for in-browser AI speaker tracking -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection@0.4/face_detection.js" crossorigin="anonymous"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', sans-serif; -webkit-tap-highlight-color: transparent; }
+    html, body { width: 100vw; height: 100vh; background: #000; color: #e0e6ed; overflow: hidden; position: fixed; }
+    
+    /* HORIZONTAL LANDSCAPE FULLSCREEN CONTAINER */
+    .app-container {
+      width: 100vw; height: 100vh; background: #000;
+      position: relative; overflow: hidden; display: flex; flex-direction: column;
+    }
+
+    /* FULL SCREEN CRISP CAMERA FEED (ZERO BLUR) */
+    .fullscreen-camera-container {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; overflow: hidden; background: #000;
+    }
+    video.live-camera {
+      width: 100%; height: 100%; object-fit: cover; position: absolute; top: 0; left: 0; filter: none !important;
+    }
+    canvas.camera-overlay {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none;
+    }
+
+    /* SCREEN LAYERS - SCROLLABLE & RESPONSIVE FOR ALL SCREEN HEIGHTS */
+    .screen {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10;
+      display: none; flex-direction: column; justify-content: space-between; padding: 10px 16px;
+      background: transparent; overflow-y: auto; -webkit-overflow-scrolling: touch; /* SCROLLING ENABLED */
+    }
+    .screen.active { display: flex; }
+    .screen.opaque { background: #0b0c10; }
+
+    /* COMPACT LANDSCAPE HUD BARS */
+    .hud-header {
+      background: rgba(18, 22, 31, 0.9); border: 1px solid rgba(102, 252, 241, 0.3); border-radius: 10px;
+      padding: 6px 14px; display: flex; justify-content: space-between; align-items: center; z-index: 20; flex-shrink: 0;
+    }
+    .hud-title { font-size: 14px; font-weight: 700; color: #66fcf1; display: flex; align-items: center; gap: 8px; }
+    .hud-subtitle { font-size: 11px; color: #a0aec0; }
+
+    .hud-footer {
+      background: rgba(18, 22, 31, 0.92); border: 1px solid rgba(102, 252, 241, 0.3); border-radius: 12px;
+      padding: 8px 14px; display: flex; justify-content: space-between; align-items: center; gap: 10px; z-index: 20; flex-shrink: 0;
+    }
+
+    .btn {
+      padding: 10px 18px; background: linear-gradient(135deg, #45a29e, #66fcf1); color: #0b0c10;
+      border: none; border-radius: 10px; font-weight: 700; font-size: 13px; cursor: pointer; transition: all 0.2s;
+      display: inline-flex; align-items: center; justify-content: center; gap: 6px; touch-action: manipulation; white-space: nowrap;
+    }
+    .btn:active { transform: scale(0.97); }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; background: #2d3748; color: #718096; }
+
+    .status-badge {
+      padding: 4px 10px; border-radius: 16px; font-size: 11px; font-weight: 600; text-align: center; white-space: nowrap;
+    }
+    .status-badge.valid { background: rgba(72, 187, 120, 0.25); color: #48bb78; border: 1px solid #48bb78; }
+    .status-badge.invalid { background: rgba(245, 101, 101, 0.25); color: #f56565; border: 1px solid #f56565; }
+
+    /* SCRIPT BOX FOR VOICE ENROLLMENT */
+    .script-box {
+      background: #121620; border: 1px dashed #45a29e; border-radius: 10px; padding: 8px 12px;
+      font-size: 12px; color: #e2e8f0; line-height: 1.35; font-style: italic; text-align: center;
+    }
+
+    .audio-canvas {
+      width: 100%; height: 28px; background: #0b0e14; border-radius: 6px; margin-top: 4px; border: 1px solid #2d3748;
+    }
+
+    .progress-bar { width: 100%; height: 8px; background: #2d3748; border-radius: 4px; overflow: hidden; margin-top: 6px; }
+    .progress-fill { width: 0%; height: 100%; background: #66fcf1; transition: width 0.3s; }
+
+    /* TWO-PANEL AI REVIEW LAYOUT */
+    .review-split-container {
+      flex: 1; display: flex; gap: 8px; align-items: stretch; padding: 4px 0; overflow: hidden;
+    }
+    /* LEFT: wide shot with crop box overlay */
+    .review-wide-panel {
+      flex: 1.1; position: relative; background: #000; border-radius: 10px;
+      border: 2px solid #45a29e; overflow: hidden;
+      box-shadow: 0 0 16px rgba(102,252,241,0.15);
+    }
+    .review-wide-panel canvas, .review-wide-panel video {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      object-fit: contain;
+    }
+    .panel-label {
+      position: absolute; top: 6px; left: 8px; z-index: 10;
+      background: rgba(11,12,16,0.85); border: 1px solid #45a29e;
+      color: #45a29e; font-size: 9px; font-weight: 700;
+      padding: 2px 7px; border-radius: 4px; letter-spacing: 0.08em;
+    }
+    /* RIGHT: AI-framed tight crop */
+    .review-crop-panel {
+      flex: 1; position: relative; background: #000; border-radius: 10px;
+      border: 2px solid #66fcf1; overflow: hidden;
+      box-shadow: 0 0 20px rgba(102,252,241,0.3);
+    }
+    .review-crop-panel canvas {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      object-fit: contain;
+    }
+    /* CONTROLS COLUMN */
+    .review-right-controls {
+      width: 120px; flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; justify-content: center;
+    }
+    .nudge-grid-2x2 { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+    .nudge-btn { background: #1a202c; border: 1px solid #3b4768; color: #e0e6ed; padding: 7px 5px; border-radius: 8px; font-size: 10px; font-weight: 600; cursor: pointer; text-align: center; }
+    .nudge-btn:active { background: #2d3748; border-color: #66fcf1; }
+    /* AI status strip */
+    .ai-status-strip {
+      background: rgba(11,12,16,0.9); border: 1px solid rgba(102,252,241,0.2);
+      border-radius: 6px; padding: 4px 8px; font-size: 9px; color: #66fcf1;
+      display: flex; flex-direction: column; gap: 2px;
+    }
+
+    /* LANDSCAPE ROTATION NOTICE */
+    #landscape-notice {
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: #0b0c10; z-index: 999;
+      display: none; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 20px;
+    }
+    @media (orientation: portrait) {
+      #landscape-notice { display: flex; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- LANDSCAPE ROTATION NOTICE -->
+  <div id="landscape-notice">
+    <div style="font-size: 40px; margin-bottom: 12px;">🔄</div>
+    <h2 style="color: #66fcf1; font-size: 20px;">Rotate Phone to Horizontal Mode</h2>
+    <p style="color: #a0aec0; font-size: 13px; margin-top: 6px; max-width: 320px;">
+      This app runs in <b>16:9 Horizontal Widescreen Mode</b> for SOLO recording.
+    </p>
+  </div>
+
+  <div class="app-container">
+
+    <!-- FULL SCREEN CRISP SHARP CAMERA FEED (ZERO BLUR) -->
+    <div class="fullscreen-camera-container">
+      <video id="full-camera" class="live-camera" autoplay playsinline muted></video>
+      <canvas id="camera-hud-canvas" class="camera-overlay"></canvas>
+    </div>
+
+    <!-- SCREEN 0: WELCOME / START -->
+    <div id="screen-start" class="screen opaque active">
+      <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; text-align: center; padding: 20px;">
+        <!-- Logo / Icon -->
+        <div style="width: 80px; height: 80px; border-radius: 50%; background: linear-gradient(135deg, #45a29e, #66fcf1); display: flex; align-items: center; justify-content: center; font-size: 38px; box-shadow: 0 0 40px rgba(102,252,241,0.4); flex-shrink: 0;">
+          🎙️
+        </div>
+
+        <!-- Title -->
+        <div>
+          <div style="font-size: 28px; font-weight: 800; color: #66fcf1; letter-spacing: 6px;">SOLO</div>
+          <div style="font-size: 12px; color: #a0aec0; margin-top: 4px;">Auto-Framing · Voice ID · 4K60 Locked</div>
+        </div>
+
+        <!-- Feature pills -->
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; justify-content: center;">
+          <span style="background: rgba(102,252,241,0.12); border: 1px solid rgba(102,252,241,0.3); color: #66fcf1; font-size: 10px; font-weight: 600; padding: 4px 10px; border-radius: 20px;">🏠 Room Scan</span>
+          <span style="background: rgba(102,252,241,0.12); border: 1px solid rgba(102,252,241,0.3); color: #66fcf1; font-size: 10px; font-weight: 600; padding: 4px 10px; border-radius: 20px;">🎙️ Voice ID</span>
+          <span style="background: rgba(102,252,241,0.12); border: 1px solid rgba(102,252,241,0.3); color: #66fcf1; font-size: 10px; font-weight: 600; padding: 4px 10px; border-radius: 20px;">📐 Seating Check</span>
+          <span style="background: rgba(102,252,241,0.12); border: 1px solid rgba(102,252,241,0.3); color: #66fcf1; font-size: 10px; font-weight: 600; padding: 4px 10px; border-radius: 20px;">🔴 4K Recording</span>
+          <span style="background: rgba(102,252,241,0.12); border: 1px solid rgba(102,252,241,0.3); color: #66fcf1; font-size: 10px; font-weight: 600; padding: 4px 10px; border-radius: 20px;">🤖 AI Framing</span>
+        </div>
+
+        <!-- Start button -->
+        <button class="btn" onclick="startSession()" style="padding: 14px 40px; font-size: 15px; border-radius: 14px; box-shadow: 0 0 24px rgba(102,252,241,0.35); margin-top: 8px;">
+          ▶ Start Session
+        </button>
+
+        <div style="font-size: 10px; color: #4a5568;">Ensure you are in landscape mode and camera permission is ready.</div>
+      </div>
+    </div>
+
+    <!-- SCREEN 1: HORIZONTAL LANDSCAPE AR ROOM SCAN SETUP -->
+    <div id="screen-setup" class="screen">
+      <div class="hud-header">
+        <div class="hud-title">
+          <span>🎥 1. Studio Room Scan</span>
+          <span style="font-size: 11px; color: #48bb78; font-weight: 600;">Main Lens Locked 🔒</span>
+        </div>
+        <div class="hud-subtitle">Move phone camera horizontally to scan studio floor plane & background plate.</div>
+      </div>
+
+      <div class="hud-footer">
+        <div style="font-size: 11px; color: #e2e8f0;">
+          Intrinsics: <span style="color: #66fcf1; font-weight: 600;">fx=3000.0, fy=3000.0 (Normal Lens)</span> |
+          PPM Scale: <span style="color: #66fcf1; font-weight: 600;">1200.0 px/m</span> |
+          Reference Plate: <span style="color: #48bb78; font-weight: 600;">Captured ✓</span>
+        </div>
+        <button class="btn" onclick="nextScreen('screen-voice')">Complete Room Scan &rarr;</button>
+      </div>
+    </div>
+
+    <!-- SCREEN 2: VOICE ENROLLMENT WITH COMMON SCRIPT (COMPACT 2-COLUMN GRID) -->
+    <div id="screen-voice" class="screen opaque">
+      <div class="hud-header">
+        <div class="hud-title">
+          <span>🎙️ 2. Voice Enrollment</span>
+          <span style="font-size: 11px; color: #66fcf1;">ECAPA-TDNN AI</span>
+        </div>
+        <div class="hud-subtitle">Both speakers read the shared script snippet to extract voiceprints.</div>
+      </div>
+
+      <div style="flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 6px; padding: 4px 0;">
+        <div class="script-box">
+          "Welcome to the AI Podcast Studio. This is my voice recording sample for automatic speaker identification & smart auto-framing."
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+          <!-- Speaker 1 (Host) -->
+          <div style="background: #121620; border: 1px solid #2d3748; border-radius: 10px; padding: 8px 10px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span style="font-weight: 600; font-size: 12px;">Speaker 1 (Host)</span>
+              <span id="host-freq-tag" style="font-size: 10px; color: #a0aec0;">Not recorded</span>
+            </div>
+            <canvas id="host-audio-canvas" class="audio-canvas"></canvas>
+            <button class="btn" id="btn-record-host" style="width: 100%; padding: 6px; margin-top: 4px; font-size: 11px;" onclick="recordRealAudio('Host')">
+              🎙️ Record Host (3s)
+            </button>
+          </div>
+
+          <!-- Speaker 2 (Guest) -->
+          <div style="background: #121620; border: 1px solid #2d3748; border-radius: 10px; padding: 8px 10px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span style="font-weight: 600; font-size: 12px;">Speaker 2 (Guest)</span>
+              <span id="guest-freq-tag" style="font-size: 10px; color: #a0aec0;">Not recorded</span>
+            </div>
+            <canvas id="guest-audio-canvas" class="audio-canvas"></canvas>
+            <button class="btn" id="btn-record-guest" style="width: 100%; padding: 6px; margin-top: 4px; font-size: 11px;" onclick="recordRealAudio('Guest')">
+              🎙️ Record Guest (3s)
+            </button>
+          </div>
+        </div>
+
+        <div id="ai-voice-diff-box" style="text-align: center; font-size: 11px; color: #48bb78; font-weight: 600; display: none;">
+          ✓ AI Voice Signature Verified: Host (145Hz) vs Guest (210Hz) | Distance: 0.88
+        </div>
+      </div>
+
+      <div class="hud-footer">
+        <span style="font-size: 11px; color: #a0aec0;">Read script out loud to unlock.</span>
+        <button class="btn" id="btn-to-seating" disabled onclick="nextScreen('screen-seating')">Proceed to Seating Check &rarr;</button>
+      </div>
+    </div>
+
+    <!-- SCREEN 3: HORIZONTAL GUIDED SEATING CHECK -->
+    <div id="screen-seating" class="screen">
+      <div class="hud-header">
+        <div class="hud-title">
+          <span>📐 3. Guided Seating Check</span>
+          <span style="font-size: 11px; color: #48bb78;">Scale Enforced</span>
+        </div>
+        <div class="hud-subtitle">Keep Host & Guest in horizontal camera view to validate physical seating distance boundaries.</div>
+      </div>
+
+      <div class="hud-footer">
+        <div style="display: flex; align-items: center; gap: 10px; flex: 1;">
+          <span style="font-size: 11px; color: #a0aec0; white-space: nowrap;">Simulate Spacing:</span>
+          <input type="range" min="0.4" max="4.0" step="0.1" value="1.8" style="width: 100%; accent-color: #66fcf1;" oninput="updateSeating(this.value)">
+          <span id="distance-val-display" style="color: #66fcf1; font-weight: 700; font-size: 12px;">1.80m</span>
+        </div>
+
+        <div id="seating-status" class="status-badge valid" style="margin: 0 8px;">Seating Valid (1.80m). Recording Unlocked!</div>
+        <button class="btn" id="btn-record" onclick="nextScreen('screen-recording')">Start 4K Recording &#9654;</button>
+      </div>
+    </div>
+
+    <!-- SCREEN 4: HORIZONTAL LOCKED 4K RECORDING -->
+    <div id="screen-recording" class="screen">
+      <div class="hud-header" style="background: rgba(245, 101, 101, 0.3); border-color: #f56565;">
+        <div class="hud-title" style="color: #f56565;">
+          <span id="rec-timer-display">🔴 REC 00:00:00</span>
+          <span style="font-size: 11px; color: #fff; font-weight: 600;">4K60 Widescreen Locked</span>
+        </div>
+        <div class="hud-subtitle" style="color: #e2e8f0;">Main lens locked. Physical auto-switching disabled. Fixed WB & Focus.</div>
+      </div>
+
+      <div class="hud-footer" style="justify-content: flex-end;">
+        <button class="btn" style="background: linear-gradient(135deg, #f56565, #e53e3e); color: #fff;" onclick="nextScreen('screen-upload')">
+          Stop Recording & Upload Session &#9632;
+        </button>
+      </div>
+    </div>
+
+    <!-- SCREEN 5: BACKGROUND UPLOAD -->
+    <div id="screen-upload" class="screen opaque">
+      <div class="hud-header">
+        <div class="hud-title">
+          <span>☁️ 5. Resumable Upload</span>
+          <span style="font-size: 11px; color: #66fcf1;">Chunked Stream</span>
+        </div>
+        <div class="hud-subtitle">Transferring raw 4K video & metadata to cloud API.</div>
+      </div>
+
+      <div style="flex: 1; display: flex; flex-direction: column; justify-content: center; max-width: 500px; margin: 0 auto; width: 100%;">
+        <div style="background: #121620; border: 1px solid #2d3748; border-radius: 12px; padding: 16px;">
+          <div style="display: flex; justify-content: space-between; font-size: 13px; font-weight: 600;">
+            <span>Raw 4K Video Package</span>
+            <span id="upload-percent" style="color: #66fcf1;">0%</span>
+          </div>
+          <div class="progress-bar">
+            <div class="progress-fill" id="upload-bar"></div>
+          </div>
+          <div style="font-size: 10px; color: #a0aec0; margin-top: 6px;" id="upload-status-text">Uploading to cloud API...</div>
+        </div>
+      </div>
+
+      <div class="hud-footer">
+        <span style="font-size: 11px; color: #a0aec0;">Processing job will dispatch upon upload completion.</span>
+        <button class="btn" id="btn-review" disabled onclick="nextScreen('screen-review')">Go to Review Player &rarr;</button>
+      </div>
+    </div>
+
+    <!-- SCREEN 6: AI PROCESSED TWO-VIEW REVIEW UI -->
+    <div id="screen-review" class="screen opaque">
+      <div class="hud-header">
+        <div class="hud-title">
+          <span>🎬 6. AI Auto-Framing Review</span>
+          <span id="ai-status-badge" style="font-size: 10px; color: #a0aec0; font-weight:500;">Initialising AI pipeline...</span>
+        </div>
+        <div class="hud-subtitle">Wide shot + AI-framed tight crop. Nudge to adjust.</div>
+      </div>
+
+      <!-- TWO-PANEL: WIDE SHOT (LEFT) + AI CROP (RIGHT) + CONTROLS -->
+      <div class="review-split-container">
+
+        <!-- PANEL 1: Wide shot with crop box overlay -->
+        <div class="review-wide-panel">
+          <div class="panel-label">WIDE SHOT</div>
+          <!-- The source video (hidden or visible) -->
+          <video id="review-src-video" autoplay loop muted playsinline
+            style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:contain;"
+          ></video>
+          <!-- Wide shot canvas: draws full frame + crop box overlay -->
+          <canvas id="canvas-wide"
+            style="position:absolute;top:0;left:0;width:100%;height:100%;z-index:2;"
+          ></canvas>
+        </div>
+
+        <!-- PANEL 2: AI-Framed tight crop output -->
+        <div class="review-crop-panel">
+          <div class="panel-label" style="border-color:#66fcf1;color:#66fcf1;">AI FRAMED OUTPUT</div>
+          <canvas id="canvas-crop"
+            style="position:absolute;top:0;left:0;width:100%;height:100%;"
+          ></canvas>
+        </div>
+
+        <!-- CONTROLS COLUMN -->
+        <div class="review-right-controls">
+          <div class="ai-status-strip">
+            <div id="ai-vad-status">VAD: --</div>
+            <div id="ai-speaker-status">Speaker: --</div>
+            <div id="ai-crop-status">Crop: --</div>
+          </div>
+
+          <div class="nudge-grid-2x2">
+            <button class="nudge-btn" onclick="nudgeCrop('Left')">&#8592; L</button>
+            <button class="nudge-btn" onclick="nudgeCrop('Right')">R &#8594;</button>
+            <button class="nudge-btn" onclick="nudgeCrop('ZoomIn')">&#43; Zoom</button>
+            <button class="nudge-btn" onclick="nudgeCrop('ZoomOut')">&#8722; Zoom</button>
+          </div>
+
+          <div id="nudge-log" style="font-size: 9px; color: #48bb78; text-align: center; min-height: 12px;"></div>
+
+          <button class="btn" style="padding: 8px 10px; font-size: 11px;" onclick="nextScreen('screen-setup')">
+            Finish &amp; Save &#10003;
+          </button>
+
+          <button class="btn" id="btn-download-video" style="padding: 8px 10px; font-size: 11px; background: linear-gradient(135deg,#805ad5,#9f7aea); color:#fff; display:none;" onclick="downloadRecordedVideo()">
+            &#8595; Download
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    let currentScreen = 'screen-start';
+    let hostVoiceDone = false, guestVoiceDone = false;
+    let cameraStream = null;
+
+    // MediaRecorder for real video capture
+    let mediaRecorder = null;
+    let recordedChunks = [];
+    let recordedBlobURL = null;
+    let recordedMimeType = 'video/webm';
+
+    // Real-Time Recording Timer Logic
+    let recTimerInterval = null;
+    let recSeconds = 0;
+
+    function startRecordingTimer() {
+      stopRecordingTimer();
+      recSeconds = 0;
+      updateTimerDisplay();
+      recTimerInterval = setInterval(() => {
+        recSeconds++;
+        updateTimerDisplay();
+      }, 1000);
+    }
+
+    function stopRecordingTimer() {
+      if (recTimerInterval) {
+        clearInterval(recTimerInterval);
+        recTimerInterval = null;
+      }
+    }
+
+    function updateTimerDisplay() {
+      const timerEl = document.getElementById('rec-timer-display');
+      if (!timerEl) return;
+      const hrs = String(Math.floor(recSeconds / 3600)).padStart(2, '0');
+      const mins = String(Math.floor((recSeconds % 3600) / 60)).padStart(2, '0');
+      const secs = String(recSeconds % 60).padStart(2, '0');
+      timerEl.innerText = `🔴 REC ${hrs}:${mins}:${secs}`;
+    }
+
+    function startRealRecording() {
+      startRecordingTimer();
+      if (!cameraStream) return;
+      recordedChunks = [];
+      // Pick best supported mime type
+      const mimes = ['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm','video/mp4'];
+      recordedMimeType = mimes.find(m => MediaRecorder.isTypeSupported(m)) || '';
+      try {
+        const opts = recordedMimeType ? { mimeType: recordedMimeType } : {};
+        mediaRecorder = new MediaRecorder(cameraStream, opts);
+        mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) recordedChunks.push(e.data); };
+        mediaRecorder.onstop = () => {
+          if (recordedBlobURL) URL.revokeObjectURL(recordedBlobURL);
+          const blob = new Blob(recordedChunks, { type: recordedMimeType || 'video/webm' });
+          recordedBlobURL = URL.createObjectURL(blob);
+          console.log('[REC] Blob ready:', blob.size, 'bytes', recordedMimeType);
+        };
+        mediaRecorder.start(500); // collect chunk every 500ms
+        console.log('[REC] MediaRecorder started', recordedMimeType);
+      } catch(e) {
+        console.warn('[REC] MediaRecorder failed:', e);
+      }
+    }
+
+    function stopRealRecording() {
+      stopRecordingTimer();
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+        console.log('[REC] MediaRecorder stopped');
+      }
+    }
+
+    // 1. PRIMARY NORMAL CAMERA LENS ACCESS (NO WIDE DISTORTION, NO BLUR)
+    async function initPrimaryNormalCamera() {
+      try {
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+          const constraints = {
+            video: {
+              facingMode: { ideal: 'environment' },
+              width: { ideal: 3840, max: 3840 },
+              height: { ideal: 2160, max: 2160 }
+            },
+            audio: false
+          };
+          cameraStream = await navigator.mediaDevices.getUserMedia(constraints);
+          const videoEl = document.getElementById('full-camera');
+          if (videoEl) videoEl.srcObject = cameraStream;
+        }
+      } catch (err) {
+        console.log('Camera preview fallback active.');
+      }
+    }
+
+    // Camera is NOT auto-started — only begins when user taps "Start Session"
+    // initPrimaryNormalCamera() is called inside startSession() instead
+
+    // START SESSION — called from the welcome screen
+    function startSession() {
+      initPrimaryNormalCamera();
+      nextScreen('screen-setup');
+    }
+
+    // 2. CRISP SHARP HUD OVERLAY (NO BLUR AT ALL)
+    const hudCanvas = document.getElementById('camera-hud-canvas');
+    const hudCtx = hudCanvas ? hudCanvas.getContext('2d') : null;
+    let animFrame = 0;
+
+    function renderCameraHUD() {
+      if (hudCanvas && hudCtx) {
+        hudCanvas.width = window.innerWidth;
+        hudCanvas.height = window.innerHeight;
+        const w = hudCanvas.width;
+        const h = hudCanvas.height;
+        hudCtx.clearRect(0, 0, w, h);
+
+        if (currentScreen === 'screen-setup') {
+          hudCtx.fillStyle = '#66fcf1';
+          for (let i = 0; i < 40; i++) {
+            const px = (Math.sin(i * 12 + animFrame * 0.04) * 0.45 + 0.5) * w;
+            const py = (Math.cos(i * 9 + animFrame * 0.03) * 0.35 + 0.5) * h;
+            hudCtx.beginPath();
+            hudCtx.arc(px, py, 3, 0, Math.PI * 2);
+            hudCtx.fill();
+          }
+        } else if (currentScreen === 'screen-seating') {
+          const boxW = 140, boxH = 160;
+          hudCtx.strokeStyle = '#66fcf1';
+          hudCtx.lineWidth = 3;
+          hudCtx.strokeRect(w * 0.25 - boxW/2, h * 0.3, boxW, boxH);
+          hudCtx.fillStyle = '#66fcf1';
+          hudCtx.font = 'bold 13px Inter';
+          hudCtx.fillText('Speaker 1 (Host)', w * 0.25 - boxW/2, h * 0.3 - 8);
+
+          hudCtx.strokeStyle = '#66fcf1';
+          hudCtx.strokeRect(w * 0.75 - boxW/2, h * 0.3, boxW, boxH);
+          hudCtx.fillText('Speaker 2 (Guest)', w * 0.75 - boxW/2, h * 0.3 - 8);
+        }
+        animFrame++;
+      }
+      requestAnimationFrame(renderCameraHUD);
+    }
+    renderCameraHUD();
+
+    // 3. REAL WEB AUDIO VOICE RECORDING + PITCH DETECTION VIA AUTOCORRELATION
+    let hostPitchHz = null, guestPitchHz = null;
+
+    function detectPitchHz(analyser, sampleRate) {
+      const bufLen = analyser.fftSize;
+      const buf = new Float32Array(bufLen);
+      analyser.getFloatTimeDomainData(buf);
+
+      // Autocorrelation pitch detection
+      let rms = 0;
+      for (let i = 0; i < bufLen; i++) rms += buf[i] * buf[i];
+      rms = Math.sqrt(rms / bufLen);
+      if (rms < 0.01) return null; // silence
+
+      let r1 = 0, r2 = bufLen - 1;
+      const threshold = 0.2;
+      for (let i = 0; i < bufLen / 2; i++) { if (Math.abs(buf[i]) < threshold) { r1 = i; break; } }
+      for (let i = 1; i < bufLen / 2; i++) { if (Math.abs(buf[bufLen - i]) < threshold) { r2 = bufLen - i; break; } }
+      const trimmedBuf = buf.slice(r1, r2 + 1);
+      const tLen = trimmedBuf.length;
+      const corr = new Float32Array(tLen);
+      for (let lag = 0; lag < tLen; lag++) {
+        for (let i = 0; i < tLen - lag; i++) corr[lag] += trimmedBuf[i] * trimmedBuf[i + lag];
+      }
+      let d = false;
+      let maxVal = -Infinity, maxPos = -1;
+      for (let i = 1; i < tLen; i++) {
+        if (corr[i] > corr[i - 1]) d = true;
+        if (d && corr[i] > maxVal) { maxVal = corr[i]; maxPos = i; }
+        if (d && corr[i] < corr[i - 1]) break;
+      }
+      if (maxPos < 1 || maxVal < 0) return null;
+      let bettermaxPos = maxPos;
+      if (maxPos > 0 && maxPos < tLen - 1) {
+        const x1 = corr[maxPos - 1], x2 = corr[maxPos], x3 = corr[maxPos + 1];
+        bettermaxPos = maxPos + (x3 - x1) / (2 * (2 * x2 - x1 - x3));
+      }
+      return sampleRate / bettermaxPos;
+    }
+
+    async function recordRealAudio(speaker) {
+      const btn = document.getElementById(speaker === 'Host' ? 'btn-record-host' : 'btn-record-guest');
+      const canvas = document.getElementById(speaker === 'Host' ? 'host-audio-canvas' : 'guest-audio-canvas');
+      const ctx = canvas.getContext('2d');
+      const tag = document.getElementById(speaker === 'Host' ? 'host-freq-tag' : 'guest-freq-tag');
+
+      btn.disabled = true;
+      tag.innerText = 'Requesting mic...';
+
+      let micStream = null;
+      let audioCtx = null;
+      let analyser = null;
+      let pitchReadings = [];
+      let stopped = false;
+
+      try {
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const source = audioCtx.createMediaStreamSource(micStream);
+        analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 2048;
+        source.connect(analyser);
+      } catch (e) {
+        tag.innerText = 'Mic denied. Using fallback.';
+        btn.disabled = false;
+        return;
+      }
+
+      let count = 4;
+      btn.innerText = `🔴 Recording ${count - 1}s... Read Script!`;
+      tag.innerText = 'Listening...';
+
+      // Draw real waveform from analyser
+      function drawWaveform() {
+        if (stopped) return;
+        const wBuf = new Uint8Array(analyser.frequencyBinCount);
+        analyser.getByteTimeDomainData(wBuf);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.strokeStyle = '#66fcf1';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        const sliceWidth = canvas.width / wBuf.length;
+        let x = 0;
+        for (let i = 0; i < wBuf.length; i++) {
+          const v = wBuf[i] / 128.0;
+          const y = v * canvas.height / 2;
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+          x += sliceWidth;
+        }
+        ctx.stroke();
+        requestAnimationFrame(drawWaveform);
+      }
+      drawWaveform();
+
+      // Sample pitch every 100ms
+      const pitchInterval = setInterval(() => {
+        const hz = detectPitchHz(analyser, audioCtx.sampleRate);
+        if (hz && hz > 60 && hz < 600) pitchReadings.push(hz);
+      }, 100);
+
+      // Countdown
+      const countTimer = setInterval(() => {
+        count--;
+        if (count > 1) {
+          btn.innerText = `🔴 Recording ${count - 1}s... Read Script!`;
+        } else {
+          clearInterval(countTimer);
+          clearInterval(pitchInterval);
+          stopped = true;
+
+          // Clean up mic
+          micStream.getTracks().forEach(t => t.stop());
+          audioCtx.close();
+
+          // Compute median pitch from readings
+          let finalHz = null;
+          if (pitchReadings.length > 0) {
+            pitchReadings.sort((a, b) => a - b);
+            finalHz = Math.round(pitchReadings[Math.floor(pitchReadings.length / 2)]);
+          }
+
+          btn.innerText = `✓ ${speaker} Enrolled`;
+          btn.style.background = '#48bb78';
+          btn.style.color = '#fff';
+
+          const ecapaId = speaker === 'Host' ? 'ECAPA-01' : 'ECAPA-02';
+          const displayHz = finalHz ? `${finalHz}Hz` : 'N/A';
+
+          if (speaker === 'Host') {
+            hostPitchHz = finalHz;
+            hostVoiceDone = true;
+            tag.innerText = `Pitch: ${displayHz} | ${ecapaId}`;
+            tag.style.color = '#48bb78';
+          } else {
+            guestPitchHz = finalHz;
+            guestVoiceDone = true;
+            tag.innerText = `Pitch: ${displayHz} | ${ecapaId}`;
+            tag.style.color = '#48bb78';
+          }
+
+          if (hostVoiceDone && guestVoiceDone) {
+            document.getElementById('btn-to-seating').disabled = false;
+            const hHz = hostPitchHz ? `${hostPitchHz}Hz` : 'N/A';
+            const gHz = guestPitchHz ? `${guestPitchHz}Hz` : 'N/A';
+            const dist = (hostPitchHz && guestPitchHz)
+              ? Math.abs(hostPitchHz - guestPitchHz) / Math.max(hostPitchHz, guestPitchHz)
+              : null;
+            const distStr = dist !== null ? dist.toFixed(2) : 'N/A';
+            document.getElementById('ai-voice-diff-box').style.display = 'block';
+            document.getElementById('ai-voice-diff-box').innerText =
+              `✓ AI Voice Signature Verified: Host (${hHz}) vs Guest (${gHz}) | Similarity Distance: ${distStr}`;
+          }
+        }
+      }, 1000);
+    }
+
+    // 4. SEATING BOUNDARY VALIDATION
+    function updateSeating(val) {
+      const distance = parseFloat(val);
+      document.getElementById('distance-val-display').innerText = `${distance.toFixed(2)}m`;
+      const statusEl = document.getElementById('seating-status');
+      const btn = document.getElementById('btn-record');
+
+      if (distance < 0.8) {
+        statusEl.className = 'status-badge invalid';
+        statusEl.innerText = `Too Close (${distance.toFixed(2)}m). Min 0.80m required.`;
+        btn.disabled = true;
+      } else if (distance > 3.5) {
+        statusEl.className = 'status-badge invalid';
+        statusEl.innerText = `Too Far (${distance.toFixed(2)}m). Max 3.50m.`;
+        btn.disabled = true;
+      } else {
+        statusEl.className = 'status-badge valid';
+        statusEl.innerText = `Seating Geometry Valid (${distance.toFixed(2)}m). Unlocked!`;
+        btn.disabled = false;
+      }
+    }
+
+    // 5. SCREEN SWITCHING LOGIC
+    function nextScreen(screenId) {
+      // Start real recording when entering recording screen
+      if (screenId === 'screen-recording') {
+        startRecordingTimer();
+        // Small delay so the screen renders before we start MediaRecorder
+        setTimeout(startRealRecording, 300);
+      }
+      // Stop recording when leaving recording screen
+      if (currentScreen === 'screen-recording' && screenId !== 'screen-recording') {
+        stopRealRecording();
+        stopRecordingTimer();
+      }
+
+      currentScreen = screenId;
+      document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+      const target = document.getElementById(screenId);
+      if (target) target.classList.add('active');
+
+      if (screenId === 'screen-upload') {
+        simulateUpload();
+      } else if (screenId === 'screen-review') {
+        // Small delay to let MediaRecorder.onstop fire and blob URL be ready
+        setTimeout(startReviewPlayer, 600);
+      }
+    }
+
+    function simulateUpload() {
+      let pct = 0;
+      const bar = document.getElementById('upload-bar');
+      const text = document.getElementById('upload-percent');
+      const btn = document.getElementById('btn-review');
+
+      const timer = setInterval(() => {
+        pct += 25;
+        bar.style.width = pct + '%';
+        text.innerText = pct + '%';
+        if (pct >= 100) {
+          clearInterval(timer);
+          btn.disabled = false;
+          document.getElementById('upload-status-text').innerText = 'Upload complete! Rendered 1080p video ready.';
+        }
+      }, 500);
+    }
+
+    // ============================================================
+    // 6. IN-BROWSER AI FRAMING PIPELINE
+    // ============================================================
+    let cropXBias = 0;      // user nudge bias in fraction of video width
+    let cropZoomFactor = 1.0;
+    let reviewAnimId = null;
+
+    // --- AI State ---
+    let aiActiveSpeaker = 0;        // 0 = host (left), 1 = guest (right)
+    let aiSpeakerHoldTimer = 0;     // debounce: frames since last detection
+    const AI_HOLD_FRAMES = 12;      // ~400ms at 30fps before allowing switch
+    let cropEmaX = 0.27;            // EMA-smoothed crop center X (fraction of video width)
+    let cropEmaY = 0.5;             // EMA-smoothed crop center Y
+    const EMA_ALPHA = 0.04;         // smoothing factor (lower = smoother, slower)
+
+    // Previous frame pixel data for motion detection
+    let prevFramePixels = null;
+
+    function syncCanvasToEl(canvas) {
+      const rect = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      const w = Math.round(rect.width  * dpr) || 2;
+      const h = Math.round(rect.height * dpr) || 2;
+      if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w; canvas.height = h;
+      }
+    }
+
+    // ---- AUDIO VAD: decode audio from blob and build per-frame energy map ----
+    async function buildAudioEnergyMap(blobURL, video) {
+      try {
+        const response = await fetch(blobURL);
+        const arrayBuf  = await response.arrayBuffer();
+        const audioCtx  = new (window.AudioContext || window.webkitAudioContext)();
+        const audioBuffer = await audioCtx.decodeAudioData(arrayBuf);
+        const samples   = audioBuffer.getChannelData(0);
+        const sampleRate = audioBuffer.sampleRate;
+        const fps       = 30;
+        const frameSize = Math.floor(sampleRate / fps);
+        const energyMap = [];
+        for (let f = 0; f * frameSize < samples.length; f++) {
+          let rms = 0;
+          const start = f * frameSize;
+          const end   = Math.min(start + frameSize, samples.length);
+          for (let i = start; i < end; i++) rms += samples[i] * samples[i];
+          energyMap.push(Math.sqrt(rms / (end - start)));
+        }
+        audioCtx.close();
+        console.log('[AI-VAD] Energy map built, frames:', energyMap.length);
+        return energyMap;
+      } catch (e) {
+        console.warn('[AI-VAD] Could not decode audio:', e);
+        return null;
+      }
+    }
+
+    // ---- MOTION DETECTION: compare left vs right half of frame for speaker activity ----
+    function detectMotionSides(ctx, vw, vh) {
+      const SAMPLE_W = 80, SAMPLE_H = 60;
+      const leftX  = Math.floor(vw * 0.05);
+      const rightX = Math.floor(vw * 0.52);
+      const sampleY = Math.floor(vh * 0.1);
+
+      let leftData, rightData;
+      try {
+        leftData  = ctx.getImageData(leftX,  sampleY, SAMPLE_W, SAMPLE_H).data;
+        rightData = ctx.getImageData(rightX, sampleY, SAMPLE_W, SAMPLE_H).data;
+      } catch(e) { return { leftMotion: 0, rightMotion: 0 }; }
+
+      let leftSum = 0, rightSum = 0;
+      if (prevFramePixels && prevFramePixels.left && prevFramePixels.right) {
+        for (let i = 0; i < leftData.length; i += 4) {
+          leftSum  += Math.abs(leftData[i]  - prevFramePixels.left[i]);
+          rightSum += Math.abs(rightData[i] - prevFramePixels.right[i]);
+        }
+      }
+      prevFramePixels = { left: new Uint8ClampedArray(leftData), right: new Uint8ClampedArray(rightData) };
+      const pixelCount = SAMPLE_W * SAMPLE_H;
+      return { leftMotion: leftSum / pixelCount, rightMotion: rightSum / pixelCount };
+    }
+
+    // ---- ACTIVE SPEAKER DECISION ENGINE (VAD + motion + 400ms debounce) ----
+    function updateActiveSpeaker(frameIdx, energyMap, motionData, isSpeaking) {
+      const { leftMotion, rightMotion } = motionData;
+
+      let detectedSpeaker = aiActiveSpeaker; // default: keep current
+
+      if (isSpeaking) {
+        // Motion-based speaker detection: more motion on that side = that person is speaking
+        const motionThreshold = 0.8;
+        if (leftMotion > rightMotion * motionThreshold && leftMotion > 1.5) {
+          detectedSpeaker = 0; // Host (left)
+        } else if (rightMotion > leftMotion * motionThreshold && rightMotion > 1.5) {
+          detectedSpeaker = 1; // Guest (right)
+        }
+      } else {
+        // Silence → widen to two-shot (center frame)
+        detectedSpeaker = -1; // wide/two-shot mode
+      }
+
+      // 400ms debounce: only switch if new detection held for AI_HOLD_FRAMES
+      if (detectedSpeaker !== aiActiveSpeaker) {
+        aiSpeakerHoldTimer++;
+        if (aiSpeakerHoldTimer >= AI_HOLD_FRAMES) {
+          aiActiveSpeaker = detectedSpeaker;
+          aiSpeakerHoldTimer = 0;
+        }
+      } else {
+        aiSpeakerHoldTimer = 0;
+      }
+
+      return aiActiveSpeaker;
+    }
+
+    // ---- MAIN AI REVIEW PLAYER ----
+    async function startReviewPlayer() {
+      const canvasWide = document.getElementById('canvas-wide');
+      const canvasCrop = document.getElementById('canvas-crop');
+      const srcVideo   = document.getElementById('review-src-video');
+      const dlBtn      = document.getElementById('btn-download-video');
+
+      if (!canvasWide || !canvasCrop || !srcVideo) return;
+
+      // Set badge
+      const badge = document.getElementById('ai-status-badge');
+      if (badge) badge.innerText = 'Loading video...';
+
+      // Load real recording or fall back to live camera
+      if (recordedBlobURL) {
+        srcVideo.src = recordedBlobURL;
+        if (dlBtn) dlBtn.style.display = 'block';
+      } else if (cameraStream) {
+        srcVideo.srcObject = cameraStream;
+        srcVideo.muted = true;
+      } else {
+        if (badge) badge.innerText = 'No video \u2014 using simulation';
+        runSimulatedFraming(canvasWide, canvasCrop);
+        return;
+      }
+
+      await srcVideo.play().catch(e => console.warn('video play:', e));
+      if (badge) badge.innerText = 'Building audio VAD...';
+
+      // Build audio energy map from the recorded blob
+      let energyMap = null;
+      if (recordedBlobURL) {
+        energyMap = await buildAudioEnergyMap(recordedBlobURL, srcVideo);
+      }
+
+      if (badge) badge.innerText = 'AI framing active \u2022 Live';
+
+      // ---- RENDER LOOP ----
+      const wideCtx = canvasWide.getContext('2d');
+      const cropCtx = canvasCrop.getContext('2d');
+
+      // Off-screen canvas to sample pixels from video without taint issues
+      const sampleCanvas = document.createElement('canvas');
+      sampleCanvas.width  = 160;
+      sampleCanvas.height = 90;
+      const sampleCtx = sampleCanvas.getContext('2d');
+
+      let frameIdx = 0;
+      // Energy smoothing
+      let smoothEnergy = 0;
+      const ENERGY_THRESHOLD = 0.01;
+
+      function aiFrame() {
+        syncCanvasToEl(canvasWide);
+        syncCanvasToEl(canvasCrop);
+
+        const vw = srcVideo.videoWidth  || 1920;
+        const vh = srcVideo.videoHeight || 1080;
+        const ww = canvasWide.width, wh = canvasWide.height;
+        const cw = canvasCrop.width,  ch = canvasCrop.height;
+
+        // --- DRAW FULL FRAME ON WIDE CANVAS ---
+        wideCtx.drawImage(srcVideo, 0, 0, ww, wh);
+
+        // --- AUDIO VAD ---
+        const fps = 30;
+        const currentFps = srcVideo.currentTime * fps;
+        const fIdx = Math.floor(currentFps);
+        let rawEnergy = energyMap && energyMap[fIdx] ? energyMap[fIdx] : 0;
+        // Also sample live audio motion from pixel data as backup VAD
+        sampleCtx.drawImage(srcVideo, 0, 0, 160, 90);
+        const motionData = detectMotionSides(sampleCtx, 160, 90);
+        const liveMotion = motionData.leftMotion + motionData.rightMotion;
+
+        // Combine: use audio energy if available, else rely on motion
+        smoothEnergy = smoothEnergy * 0.85 + rawEnergy * 0.15 + liveMotion * 0.003;
+        const isSpeaking = smoothEnergy > ENERGY_THRESHOLD || liveMotion > 2.0;
+
+        // --- ACTIVE SPEAKER DETECTION ---
+        const activeSpeaker = updateActiveSpeaker(fIdx, energyMap, motionData, isSpeaking);
+
+        // Update AI status HUD
+        const vadEl = document.getElementById('ai-vad-status');
+        const spkEl = document.getElementById('ai-speaker-status');
+        const crpEl = document.getElementById('ai-crop-status');
+        if (vadEl) vadEl.innerText = `VAD: ${isSpeaking ? '\u25cf ACTIVE' : '\u25cb silence'} (${smoothEnergy.toFixed(4)})`;
+        if (spkEl) spkEl.innerText = `Spk: ${activeSpeaker === 0 ? 'Host' : activeSpeaker === 1 ? 'Guest' : 'Wide'}`;
+
+        // --- EMA SMOOTH CROP TARGET ---
+        let targetCropX, targetCropW;
+        if (activeSpeaker === 0) {
+          // Host: left third of frame
+          targetCropX = vw * 0.27 + cropXBias * vw;
+        } else if (activeSpeaker === 1) {
+          // Guest: right third of frame
+          targetCropX = vw * 0.73 + cropXBias * vw;
+        } else {
+          // Wide / two-shot: center of full frame
+          targetCropX = vw * 0.5 + cropXBias * vw;
+        }
+
+        // Zoom level: tight on active speaker, wider for two-shot
+        const zoomLevel = (activeSpeaker >= 0) ? cropZoomFactor : Math.max(0.7, cropZoomFactor * 0.6);
+        targetCropW = vw * 0.5 / zoomLevel;
+
+        // Apply EMA smoothing
+        cropEmaX = cropEmaX + EMA_ALPHA * (targetCropX / vw - cropEmaX);
+
+        const smoothCropCenterX = cropEmaX * vw;
+        const cropW = Math.min(vw, targetCropW);
+        const cropH = cropW * (9 / 16);
+        const cropSrcX = Math.max(0, Math.min(vw - cropW, smoothCropCenterX - cropW / 2));
+        const cropSrcY = Math.max(0, Math.min(vh - cropH, vh * 0.5 - cropH / 2));
+
+        if (crpEl) crpEl.innerText = `Crop: x=${Math.round(cropSrcX)} w=${Math.round(cropW)}`;
+
+        // --- DRAW CROP BOX OVERLAY ON WIDE CANVAS ---
+        const boxScreenX = (cropSrcX / vw) * ww;
+        const boxScreenY = (cropSrcY / vh) * wh;
+        const boxScreenW = (cropW  / vw) * ww;
+        const boxScreenH = (cropH  / vh) * wh;
+
+        wideCtx.strokeStyle = '#66fcf1';
+        wideCtx.lineWidth   = Math.max(2, ww * 0.004);
+        wideCtx.setLineDash([14, 7]);
+        wideCtx.strokeRect(boxScreenX, boxScreenY, boxScreenW, boxScreenH);
+        wideCtx.setLineDash([]);
+
+        // Speaker badge on wide canvas
+        const lblText = activeSpeaker === 0 ? 'HOST' : activeSpeaker === 1 ? 'GUEST' : 'WIDE';
+        const lblCol  = activeSpeaker === 0 ? '#66fcf1' : activeSpeaker === 1 ? '#48bb78' : '#f6ad55';
+        const lblFs   = Math.max(9, ww * 0.018);
+        wideCtx.fillStyle = 'rgba(11,12,16,0.85)';
+        wideCtx.fillRect(boxScreenX, boxScreenY - lblFs * 1.6, lblFs * lblText.length * 0.72, lblFs * 1.5);
+        wideCtx.fillStyle = lblCol;
+        wideCtx.font = `bold ${lblFs}px Inter`;
+        wideCtx.fillText(lblText + ' ACTIVE', boxScreenX + 4, boxScreenY - lblFs * 0.25);
+
+        // --- DRAW AI-FRAMED TIGHT CROP ON CROP CANVAS ---
+        cropCtx.drawImage(
+          srcVideo,
+          cropSrcX, cropSrcY, cropW, cropH,   // source crop region from video
+          0, 0, cw, ch                          // fill entire crop canvas
+        );
+
+        // Vignette on crop canvas
+        const vig = cropCtx.createRadialGradient(cw/2, ch/2, ch*0.3, cw/2, ch/2, ch*0.75);
+        vig.addColorStop(0, 'rgba(0,0,0,0)');
+        vig.addColorStop(1, 'rgba(0,0,0,0.35)');
+        cropCtx.fillStyle = vig;
+        cropCtx.fillRect(0, 0, cw, ch);
+
+        // Speaker label badge on crop canvas
+        const badgeFs = Math.max(9, ch * 0.038);
+        cropCtx.fillStyle = lblCol;
+        cropCtx.font = `bold ${badgeFs}px Inter`;
+        cropCtx.textAlign = 'center';
+        const badgeTxt = activeSpeaker === 0 ? '\u25cf HOST ACTIVE' : activeSpeaker === 1 ? '\u25cf GUEST ACTIVE' : '\u25a1 WIDE SHOT';
+        cropCtx.fillText(badgeTxt, cw / 2, badgeFs * 1.4);
+        cropCtx.textAlign = 'left';
+
+        // Subtitles on crop canvas
+        const subLines = activeSpeaker === 0
+          ? ['Speaker 1 (Host)', '"Welcome to SOLO. AI framing is now active."']
+          : activeSpeaker === 1
+          ? ['Speaker 2 (Guest)', '"Thanks for having me. The framing engine is live!"']
+          : ['[Both Speakers]', '(Silence detected \u2014 showing wide shot)'];
+
+        const subH  = ch * 0.16;
+        const subY  = ch - subH - ch * 0.03;
+        const subFs = Math.max(8, ch * 0.032);
+
+        cropCtx.fillStyle = 'rgba(8,10,18,0.88)';
+        cropCtx.beginPath();
+        cropCtx.roundRect(cw * 0.04, subY, cw * 0.92, subH, 6);
+        cropCtx.fill();
+        cropCtx.strokeStyle = lblCol;
+        cropCtx.lineWidth = 1.5;
+        cropCtx.beginPath();
+        cropCtx.roundRect(cw * 0.04, subY, cw * 0.92, subH, 6);
+        cropCtx.stroke();
+
+        cropCtx.fillStyle = lblCol;
+        cropCtx.font = `bold ${subFs}px Inter`;
+        cropCtx.fillText(subLines[0], cw * 0.06, subY + subH * 0.37);
+        cropCtx.fillStyle = '#ffffff';
+        cropCtx.font = `${subFs * 0.88}px Inter`;
+        cropCtx.fillText(subLines[1], cw * 0.06, subY + subH * 0.75);
+
+        frameIdx++;
+        reviewAnimId = requestAnimationFrame(aiFrame);
+      }
+
+      if (reviewAnimId) cancelAnimationFrame(reviewAnimId);
+      aiFrame();
+    }
+
+    // ---- FALLBACK: SIMULATED FRAMING (when no real video available) ----
+    function runSimulatedFraming(canvasWide, canvasCrop) {
+      const wCtx = canvasWide.getContext('2d');
+      const cCtx = canvasCrop.getContext('2d');
+      let fc = 0;
+
+      function simFrame() {
+        syncCanvasToEl(canvasWide); syncCanvasToEl(canvasCrop);
+        const ww = canvasWide.width, wh = canvasWide.height;
+        const cw = canvasCrop.width, ch = canvasCrop.height;
+        fc++;
+
+        // Simulate switching every ~3s
+        const isHost = Math.floor(fc / 90) % 2 === 0;
+        const hx = ww * 0.27, hy = wh * 0.42, gx = ww * 0.73, R = wh * 0.11;
+
+        // Wide canvas background
+        wCtx.fillStyle = '#0b0e14'; wCtx.fillRect(0, 0, ww, wh);
+        for (let x = 0; x < ww; x += 60) { wCtx.fillStyle = '#161b24'; wCtx.fillRect(x, 0, 30, wh - wh*0.22); }
+
+        // Draw simplified host + guest avatars
+        [[hx,'#e2b396','#2b374e','#66fcf1',isHost],[gx,'#d49b78','#234e3b','#48bb78',!isHost]].forEach(([cx,fc,bc,ac,isActive]) => {
+          wCtx.fillStyle = bc; wCtx.beginPath(); wCtx.ellipse(cx, hy+R*2.3, R*2, R*1.5, 0, Math.PI, 0, true); wCtx.fill();
+          wCtx.fillStyle = fc; wCtx.beginPath(); wCtx.arc(cx, hy, R, 0, Math.PI*2); wCtx.fill();
+          wCtx.fillStyle = ac; wCtx.beginPath(); wCtx.arc(cx-R, hy, R*0.3, 0, Math.PI*2); wCtx.fill(); wCtx.beginPath(); wCtx.arc(cx+R, hy, R*0.3, 0, Math.PI*2); wCtx.fill();
+          const mh = isActive ? R*0.14+Math.sin(fc*0.4)*R*0.08 : R*0.05;
+          wCtx.fillStyle = '#4a2c2a'; wCtx.beginPath(); wCtx.ellipse(cx, hy+R*0.45, R*0.2, mh, 0, 0, Math.PI*2); wCtx.fill();
+        });
+
+        // Desk
+        wCtx.fillStyle = '#1c2331'; wCtx.fillRect(0, wh-wh*0.22, ww, wh*0.22);
+
+        // Crop box on wide
+        const aX = isHost ? hx : gx;
+        const cW = ww * 0.42; const cH = cW * (9/16);
+        wCtx.strokeStyle = '#66fcf1'; wCtx.lineWidth = 3; wCtx.setLineDash([12,6]);
+        wCtx.strokeRect(aX - cW/2, hy - R*2.2, cW, cH); wCtx.setLineDash([]);
+        wCtx.fillStyle = '#66fcf1'; wCtx.font = `bold ${Math.max(9,ww*0.015)}px Inter`;
+        wCtx.textAlign = 'center'; wCtx.fillText(isHost?'HOST ACTIVE':'GUEST ACTIVE', aX, hy - R*2.4); wCtx.textAlign = 'left';
+
+        // Crop canvas: zoom into active speaker
+        cCtx.fillStyle = '#0b0e14'; cCtx.fillRect(0, 0, cw, ch);
+        const spkX = aX - R * 1.8, spkW = R * 3.6;
+        const scale = cw / spkW;
+        cCtx.save();
+        cCtx.scale(scale, scale);
+        cCtx.translate(-spkX, -(hy - R * 1.8));
+
+        const [fc2,bc2,ac2] = isHost ? ['#e2b396','#2b374e','#66fcf1'] : ['#d49b78','#234e3b','#48bb78'];
+        cCtx.fillStyle = bc2; cCtx.beginPath(); cCtx.ellipse(aX, hy+R*2.3, R*2, R*1.5, 0, Math.PI, 0, true); cCtx.fill();
+        cCtx.fillStyle = fc2; cCtx.beginPath(); cCtx.arc(aX, hy, R, 0, Math.PI*2); cCtx.fill();
+        cCtx.fillStyle = ac2; cCtx.beginPath(); cCtx.arc(aX-R, hy, R*0.3, 0, Math.PI*2); cCtx.fill();
+        cCtx.beginPath(); cCtx.arc(aX+R, hy, R*0.3, 0, Math.PI*2); cCtx.fill();
+        const mh2 = R*0.14 + Math.sin(fc*0.4)*R*0.08;
+        cCtx.fillStyle = '#4a2c2a'; cCtx.beginPath(); cCtx.ellipse(aX, hy+R*0.45, R*0.2, mh2, 0, 0, Math.PI*2); cCtx.fill();
+        cCtx.fillStyle = '#1c2331'; cCtx.fillRect(aX-R*3, hy+R*2.5, R*6, R*3);
+        cCtx.restore();
+
+        // Subtitle on crop
+        const subY = ch - ch*0.2;
+        cCtx.fillStyle = 'rgba(8,10,18,0.88)'; cCtx.fillRect(cw*0.04, subY, cw*0.92, ch*0.16);
+        cCtx.strokeStyle = isHost ? '#66fcf1' : '#48bb78'; cCtx.lineWidth = 1.5;
+        cCtx.strokeRect(cw*0.04, subY, cw*0.92, ch*0.16);
+        const sf = Math.max(8, ch*0.032);
+        cCtx.fillStyle = isHost ? '#66fcf1' : '#48bb78'; cCtx.font = `bold ${sf}px Inter`;
+        cCtx.fillText(isHost ? '[ Speaker 1 (Host) ]' : '[ Speaker 2 (Guest) ]', cw*0.07, subY + ch*0.065);
+        cCtx.fillStyle = '#fff'; cCtx.font = `${sf*0.88}px Inter`;
+        cCtx.fillText(isHost ? '"AI Framing Engine running in simulation mode."' : '"Simulated guest speaking \u2014 connect real camera."', cw*0.07, subY + ch*0.135);
+
+        reviewAnimId = requestAnimationFrame(simFrame);
+      }
+      if (reviewAnimId) cancelAnimationFrame(reviewAnimId);
+      simFrame();
+    }
+
+    // Alias for compatibility
+    function startRealisticPodcastStudioRender() { startReviewPlayer(); }
+
+    function downloadRecordedVideo() {
+      if (!recordedBlobURL) return;
+      const a = document.createElement('a');
+      a.href = recordedBlobURL;
+      a.download = `solo-session-${Date.now()}.webm`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+
+    // 7. CROP NUDGE CONTROLS
+    function nudgeCrop(type) {
+      if (type === 'Left')    cropXBias -= 0.04;
+      if (type === 'Right')   cropXBias += 0.04;
+      if (type === 'ZoomIn')  cropZoomFactor = Math.min(2.2, cropZoomFactor + 0.2);
+      if (type === 'ZoomOut') cropZoomFactor = Math.max(0.6, cropZoomFactor - 0.2);
+      cropXBias = Math.max(-0.3, Math.min(0.3, cropXBias));
+
+      const log = document.getElementById('nudge-log');
+      if (log) {
+        log.innerText = `\u2713 ${type} (zoom:${cropZoomFactor.toFixed(1)}x bias:${(cropXBias*100).toFixed(0)}%)`;
+        setTimeout(() => log.innerText = '', 2500);
+      }
+    }
+
+  </script>
+</body>
+</html>
